@@ -26,7 +26,7 @@ on:
       mod_filename:
         description: "Nexus file name (without extension)."
         required: false
-        default: "Kill Feed"
+        default: "Kill Feed VR"
       mod_version:
         description: "Nexus version to publish. Defaults to the tag without 'v'."
         required: false
@@ -55,7 +55,7 @@ on:
       mod_filename:
         required: false
         type: string
-        default: "Kill Feed"
+        default: "Kill Feed VR"
       mod_version:
         required: false
         type: string
@@ -182,7 +182,7 @@ jobs:
       nexus_mod_id: ${{ needs.prepare.outputs.mod_id }}
       tag_name: ${{ needs.prepare.outputs.tag }}
       mod_version: ${{ needs.prepare.outputs.version }}
-      mod_filename: ${{ inputs.mod_filename || 'Kill Feed' }}
+      mod_filename: ${{ inputs.mod_filename || 'Kill Feed VR' }}
       changelog: ${{ needs.prepare.outputs.changelog }}
       file_description: |
         See Description → Requirements for installation instructions.
