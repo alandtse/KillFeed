@@ -3,18 +3,21 @@
   "version-string": "1.1.0",
   "description": "",
   "homepage": "",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "dependencies": [
     "clib-util",
     "boost-circular-buffer",
     "boost-unordered",
     "directxtex",
+    "directxtk",
     "freetype",
     {
       "name": "imgui",
       "features": [ "dx11-binding", "win32-binding", "freetype", "wchar32" ]
     },
     "glaze",
+    "nlohmann-json",
+    "rapidcsv",
     "rsm-binary-io",
     "srell",
     "spdlog",

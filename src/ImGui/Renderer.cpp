@@ -2,10 +2,37 @@
 
 #include "CauseOfDeath.h"
 #include "FontStyles.h"
+#include "ImGuiVRHelperClientSDK.h"
 #include "Manager.h"
 
 namespace ImGui::Renderer
 {
+	namespace
+	{
+		ImGuiVRHelperPluginAPI::Client g_vrClient;
+	}
+
+	void Connect()
+	{
+		if (REL::Module::IsVR()) {
+			// Register as an always-on HUD layer (no interactive overlay, no dashboard).
+			if (!g_vrClient.Connect("KillFeed", Version::NAME.data(),
+					ImGuiVRHelperPluginAPI::kClientFlag_HUDMode)) {
+				logger::warn("ImGuiVRHelper not found or registration failed — VR kill feed will not be available."sv);
+				return;
+			}
+
+			logger::info("Connected to ImGuiVRHelper as HUD client."sv);
+
+			// The HUD context is private to the helper, so load the same font/style and
+			// icon textures into it that the flat path loads at D3D init.
+			g_vrClient.SetHudStyleCallback([]() {
+				ImGui::FontStyles::GetSingleton()->LoadFontStyles();
+				CauseOfDeathManager::GetSingleton()->LoadIcons();
+			});
+		}
+	}
+
 	struct CreateD3DAndSwapChain
 	{
 		static void thunk()
@@ -13,7 +40,7 @@ namespace ImGui::Renderer
 			func();
 
 			if (const auto renderer = RE::BSGraphics::Renderer::GetSingleton()) {
-				const auto swapChain = reinterpret_cast<IDXGISwapChain*>(renderer->data.renderWindows[0].swapChain);
+				const auto swapChain = reinterpret_cast<IDXGISwapChain*>(renderer->GetRuntimeData().renderWindows[0].swapChain);
 				if (!swapChain) {
 					logger::error("couldn't find swapChain");
 					return;
@@ -25,32 +52,43 @@ namespace ImGui::Renderer
 					return;
 				}
 
-				const auto device = reinterpret_cast<ID3D11Device*>(renderer->data.forwarder);
-				const auto context = reinterpret_cast<ID3D11DeviceContext*>(renderer->data.context);
+				const auto device = reinterpret_cast<ID3D11Device*>(renderer->GetRuntimeData().forwarder);
+				const auto context = reinterpret_cast<ID3D11DeviceContext*>(renderer->GetRuntimeData().context);
 
-				logger::info("Initializing ImGui..."sv);
+				if (REL::Module::IsVR()) {
+					const auto ss = RE::BSGraphics::Renderer::GetScreenSize();
+					logger::info("D3D initialized — VR kill feed rendering via ImGuiVRHelper. ScreenSize {}x{}", ss.width, ss.height);
 
-				ImGui::CreateContext();
+					// Store device/context so DrawKillFeed can call RenderHud each frame.
+					g_d3dDevice = device;
+					g_d3dContext = context;
 
-				auto& io = ImGui::GetIO();
-				io.ConfigFlags = ImGuiConfigFlags_None;
-				io.IniFilename = nullptr;
+					initialized.store(true);
+				} else {
+					logger::info("Initializing ImGui..."sv);
 
-				if (!ImGui_ImplWin32_Init(desc.OutputWindow)) {
-					logger::error("ImGui initialization failed (Win32)");
-					return;
+					ImGui::CreateContext();
+
+					auto& io = ImGui::GetIO();
+					io.ConfigFlags = ImGuiConfigFlags_None;
+					io.IniFilename = nullptr;
+
+					if (!ImGui_ImplWin32_Init(desc.OutputWindow)) {
+						logger::error("ImGui initialization failed (Win32)");
+						return;
+					}
+					if (!ImGui_ImplDX11_Init(device, context)) {
+						logger::error("ImGui initialization failed (DX11)"sv);
+						return;
+					}
+
+					logger::info("ImGui initialized.");
+
+					ImGui::FontStyles::GetSingleton()->LoadFontStyles();
+					CauseOfDeathManager::GetSingleton()->LoadIcons();
+
+					initialized.store(true);
 				}
-				if (!ImGui_ImplDX11_Init(device, context)) {
-					logger::error("ImGui initialization failed (DX11)"sv);
-					return;
-				}
-
-				logger::info("ImGui initialized.");
-
-				ImGui::FontStyles::GetSingleton()->LoadFontStyles();
-				CauseOfDeathManager::GetSingleton()->LoadIcons();
-
-				initialized.store(true);
 			}
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
@@ -60,6 +98,21 @@ namespace ImGui::Renderer
 	{
 		// Skip if Imgui is not loaded
 		if (!initialized.load() || Manager::GetSingleton()->IsFeedEmpty()) {
+			return;
+		}
+
+		if (REL::Module::IsVR()) {
+			if (!g_vrClient.IsConnected()) {
+				return;
+			}
+
+			static const auto [width, height] = RE::BSGraphics::Renderer::GetScreenSize();
+			const ImVec2      displaySize{ static_cast<float>(width), static_cast<float>(height) };
+
+			g_vrClient.RenderHud(g_d3dDevice, g_d3dContext, displaySize, []() {
+				CauseOfDeathManager::GetSingleton()->ReloadIconsOnDemand();
+				Manager::GetSingleton()->Draw();
+			});
 			return;
 		}
 

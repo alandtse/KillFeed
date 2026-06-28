@@ -156,11 +156,7 @@ namespace stl
 	}
 }
 
-#ifdef SKYRIM_AE
-#	define OFFSET(se, ae) ae
-#else
-#	define OFFSET(se, ae) se
-#endif
+#define OFFSET(se, ae) REL::VariantOffset(se, ae, se)
 
 #define ICON_PATH(name) L"Data\\Interface\\KillFeed\\Textures\\" name ".png"
 

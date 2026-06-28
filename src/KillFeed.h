@@ -45,7 +45,7 @@ public:
 			}
 		}
 
-		if (!RE::UI::GetSingleton()->GameIsPaused() && !RE::Main::GetSingleton()->freezeTime) {
+		if (!RE::UI::GetSingleton()->GameIsPaused() && !RE::Main::GetSingleton()->GetRuntimeData().freezeTime) {
 			accumulatedTime += RE::BSTimer::GetSingleton()->realTimeDelta;
 		}
 

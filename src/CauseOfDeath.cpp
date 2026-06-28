@@ -9,7 +9,7 @@ void CauseOfDeathManager::LoadIcons()
 		return;
 	}
 
-	auto device = reinterpret_cast<ID3D11Device*>(renderer->data.forwarder);
+	auto device = reinterpret_cast<ID3D11Device*>(renderer->GetRuntimeData().forwarder);
 	if (!device) {
 		return;
 	}
@@ -248,17 +248,21 @@ CAUSE_OF_DEATH CauseOfDeathManager::GetCauseFromAmmo(RE::TESAmmo* a_ammo)
 {
 	OptCause cause{};
 
-	a_ammo->ForEachKeyword([&](RE::BGSKeyword* a_keyword) {
-		if (a_keyword) {
-			if (auto edid = a_keyword->GetFormEditorID()) {
-				if (auto it = ammoKeywordCause.find(edid); it != ammoKeywordCause.end()) {
-					cause = it->second;
-					return RE::BSContainer::ForEachResult::kStop;
+	// NG's multiruntime TESAmmo doesn't inherit BGSKeywordForm directly (its layout is
+	// runtime-variant); reach the keyword form via the variant-safe As<> cast.
+	if (const auto keywordForm = a_ammo->As<RE::BGSKeywordForm>()) {
+		keywordForm->ForEachKeyword([&](RE::BGSKeyword* a_keyword) {
+			if (a_keyword) {
+				if (auto edid = a_keyword->GetFormEditorID()) {
+					if (auto it = ammoKeywordCause.find(edid); it != ammoKeywordCause.end()) {
+						cause = it->second;
+						return RE::BSContainer::ForEachResult::kStop;
+					}
 				}
 			}
-		}
-		return RE::BSContainer::ForEachResult::kContinue;
-	});
+			return RE::BSContainer::ForEachResult::kContinue;
+		});
+	}
 
 	if (cause) {
 		return *cause;
@@ -322,58 +326,68 @@ CauseOfDeathManager::MGEFSource CauseOfDeathManager::GetMagicSource(const RE::TE
 	using MGEF_FLAG = RE::EffectSetting::EffectSettingData::Flag;
 
 	auto victimActor = a_victim->As<RE::Actor>();
-
-	if (auto activeEffects = victimActor->GetActiveEffectList()) {
-		logger::debug("\t\t{} active effects", activeEffects->size());
-
-		std::uint32_t effectIndex = 0;
-
-		for (const auto& activeEffect : *activeEffects) {
-			if (activeEffect) {
-				const auto spell = activeEffect->spell;
-				const auto mgef = activeEffect->GetBaseObject();
-				if (!spell || !mgef) {
-					effectIndex++;
-					continue;
-				}
-
-				if (mgef->data.flags.none(MGEF_FLAG::kDetrimental)) {
-					logger::debug("\t\t\tEffect[{}] {} - Skipped (not detrimental)", effectIndex, RE::FormLogger(mgef));
-					effectIndex++;
-					continue;
-				}
-
-				if (spell->GetCastingType() == RE::MagicSystem::CastingType::kConstantEffect) {
-					logger::debug("\t\t\tEffect[{}] {} - Skipped (casting type is constant)",
-						effectIndex,
-						RE::FormLogger(mgef));
-					effectIndex++;
-					continue;
-				}
-
-				auto caster = activeEffect->caster.get();
-
-				logger::debug("\t\t\tEffect[{}]: mgef={}, spell={}, magnitude={:.2f}, caster={}, hostile={}, detrimental={}",
-					effectIndex,
-					RE::FormLogger(mgef),
-					RE::FormLogger(spell),
-					activeEffect->magnitude,
-					RE::FormLogger(caster.get()),
-					mgef->data.flags.any(MGEF_FLAG::kHostile),
-					mgef->data.flags.any(MGEF_FLAG::kDetrimental));
-
-				if (const auto mag = std::abs(activeEffect->magnitude); mag > bestMagnitude) {
-					bestMagnitude = mag;
-					bestSource = MGEFSource{ mgef, spell, caster, activeEffect->source };
-				}
-			}
-			effectIndex++;
-		}
-
-		logger::debug("\t\tSummary: {} total effects", effectIndex);
-	} else {
-		logger::debug("\t\tVictim has no active effects");
+	if (!victimActor) {
+		return {};
 	}
+
+	std::uint32_t effectIndex = 0;
+
+	// Inspect one active effect, tracking the strongest detrimental source.
+	const auto processEffect = [&](RE::ActiveEffect* activeEffect) {
+		if (activeEffect) {
+			const auto spell = activeEffect->spell;
+			const auto mgef = activeEffect->GetBaseObject();
+			if (!spell || !mgef) {
+				effectIndex++;
+				return;
+			}
+
+			if (mgef->data.flags.none(MGEF_FLAG::kDetrimental)) {
+				logger::debug("\t\t\tEffect[{}] {} - Skipped (not detrimental)", effectIndex, RE::FormLogger(mgef));
+				effectIndex++;
+				return;
+			}
+
+			if (spell->GetCastingType() == RE::MagicSystem::CastingType::kConstantEffect) {
+				logger::debug("\t\t\tEffect[{}] {} - Skipped (casting type is constant)",
+					effectIndex,
+					RE::FormLogger(mgef));
+				effectIndex++;
+				return;
+			}
+
+			auto caster = activeEffect->caster.get();
+
+			logger::debug("\t\t\tEffect[{}]: mgef={}, spell={}, magnitude={:.2f}, caster={}, hostile={}, detrimental={}",
+				effectIndex,
+				RE::FormLogger(mgef),
+				RE::FormLogger(spell),
+				activeEffect->magnitude,
+				RE::FormLogger(caster.get()),
+				mgef->data.flags.any(MGEF_FLAG::kHostile),
+				mgef->data.flags.any(MGEF_FLAG::kDetrimental));
+
+			if (const auto mag = std::abs(activeEffect->magnitude); mag > bestMagnitude) {
+				bestMagnitude = mag;
+				bestSource = MGEFSource{ mgef, spell, caster, activeEffect->source };
+			}
+		}
+		effectIndex++;
+	};
+
+	// Active effects are read ONLY through the engine visitor — never GetActiveEffectList, whose
+	// returned list is invalid on VR (iterating it CTDs). GetMagicTarget() is virtual, so it
+	// returns the runtime-correct MagicTarget 'this' (the implicit Actor->MagicTarget upcast
+	// gives a wrong pointer in this universal build). VisitEffects resolves the correct
+	// enumerator id on SE/AE/VR (RELOCATION_ID), unlike the VR-only VisitActiveEffects helper.
+	if (const auto magicTarget = victimActor->GetMagicTarget()) {
+		RE::MagicTarget::EffectVisitor visitor([&](RE::ActiveEffect* activeEffect) -> RE::BSContainer::ForEachResult {
+			processEffect(activeEffect);
+			return RE::BSContainer::ForEachResult::kContinue;
+		});
+		magicTarget->VisitEffects(visitor);
+	}
+	logger::debug("\t\tSummary: {} total effects", effectIndex);
 
 	if (bestSource) {
 		logger::debug("\t\t-> Best source found: mgef={}, spell={}, magnitude={:.2f}",
