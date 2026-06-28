@@ -1,6 +1,8 @@
 # Kill Feed
 
-SKSE plugin that adds a kill feed for Skyrim Special Edition
+SKSE plugin that adds a kill feed for Skyrim Special Edition, Anniversary Edition, and VR
+[SSE/AE](https://www.nexusmods.com/skyrimspecialedition/mods/179053)
+[VR](https://www.nexusmods.com/skyrimspecialedition/mods/183816)
 
 ## Requirements
 * [CMake](https://cmake.org/)
@@ -10,9 +12,17 @@ SKSE plugin that adds a kill feed for Skyrim Special Edition
 	* Add the environment variable `VCPKG_ROOT` with the value as the path to the folder containing vcpkg
 * [Visual Studio Community 2022](https://visualstudio.microsoft.com/)
 	* Desktop development with C++
-* [CommonLibSSE](https://github.com/powerof3/CommonLibSSE/tree/dev)
-	* You need to build from the powerof3/dev branch
-	* Add this as as an environment variable `CommonLibSSEPath`
+* [CommonLibSSE-NG](https://github.com/alandtse/CommonLibVR/tree/ng)
+	* Bundled as a submodule at `extern/CommonLibVR`; no separate setup needed
+
+## User Requirements
+
+* [Address Library for SKSE](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
+	* Needed for SSE/AE
+* [VR Address Library for SKSEVR](https://www.nexusmods.com/skyrimspecialedition/mods/58101)
+	* Needed for VR
+* [ImGui VR Helper](https://www.nexusmods.com/skyrimspecialedition/mods/183466)
+	* Needed for VR (provides the in-world HUD layer)
 
 ## Register Visual Studio as a Generator
 * Open `x64 Native Tools Command Prompt`
@@ -21,23 +31,26 @@ SKSE plugin that adds a kill feed for Skyrim Special Edition
 
 ## Building
 ```
-git clone https://github.com/powerof3/KillFeed.git
+git clone https://github.com/alandtse/KillFeed.git
 cd KillFeed
-# pull commonlib /extern to override the path settings
-git submodule init
-# to update submodules to checked in build
-git submodule update
+git submodule update --init --recursive
 ```
 
-### SSE
+One universal build serves Skyrim SE, AE, and VR — it's built against CommonLibSSE-NG
+and detects the runtime at load time:
 ```
-cmake --preset vs2026-windows-vcpkg-se
+cmake --preset vs2022
 cmake --build build --config Release
 ```
-### AE
-```
-cmake --preset vs2026-windows-vcpkg-ae
-cmake --build buildae --config Release
-```
-## License
-[MIT](LICENSE)
+The plugin deploys to whichever of the `Skyrim64Path` / `SkyrimAEPath` / `SkyrimVRPath`
+environment variables you have set. Use the `vs2026` preset instead for Visual Studio 2026.
+## Licensing
+
+[GPL-3.0-or-later](COPYING) WITH a [Modding Exception and a GPL-3.0 Linking
+Exception (with Corresponding Source)](EXCEPTIONS.md), where:
+
+- **Modded Code** — Skyrim and its variants
+- **Modding Libraries** — [SKSE](https://skse.silverlock.org/), CommonLib and variants
+
+This is a VR fork of [powerof3's Kill Feed](https://github.com/powerof3/KillFeed);
+the original work is © powerofthree under the MIT License.
